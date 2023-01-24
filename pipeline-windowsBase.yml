@@ -1,0 +1,115 @@
+jobs:
+- job:
+  displayName: Image Generation Windows
+  timeoutInMinutes: 600
+  cancelTimeoutInMinutes: 30
+  pool: Azure Pipelines
+  variables:
+  - group: Image Generation Variables
+  - name: TemplatePath
+    value: Init
+
+  steps:
+#  - task: PowerShell@2
+#    displayName: 'Download custom repository'
+#    condition: and(ne(variables['CUSTOM_REPOSITORY_URL'], ''), ne(variables['CUSTOM_REPOSITORY_BRANCH'], ''))
+#    inputs:
+#      targetType: 'filePath'
+#      filePath: ./images.CI/download-repo.ps1
+#      arguments: -RepoUrl $(CUSTOM_REPOSITORY_URL) `
+#                 -RepoBranch $(CUSTOM_REPOSITORY_BRANCH)
+
+  - task: PowerShell@2
+    displayName: 'Set image template variables'
+    inputs:
+      targetType: 'inline'
+      script: |
+        $ImageType = "windows2022"
+        $TemplateDirectoryName = if ($ImageType.StartsWith("ubuntu")) { "linux" } else { "win" }
+        $TemplateDirectoryPath = Join-Path "images" $TemplateDirectoryName | Resolve-Path
+        $TempPath = Join-Path $TemplateDirectoryPath "$ImageType.pkr.hcl"
+        if ( -not (Test-Path $TempPath) ) {
+            $TempPath = Join-Path $TemplateDirectoryPath "$ImageType.json"
+        }
+        echo "##vso[task.setvariable variable=TemplateDirectoryPath;]$TemplateDirectoryPath"
+        echo "##vso[task.setvariable variable=TemplatePath;]$TempPath"
+  - task: PowerShell@2
+    displayName: 'Build VM'
+    inputs:
+      targetType: filePath
+      filePath: ./images.CI/linux-and-win/build-image.ps1
+      arguments: -ResourcesNamePrefix "windows2022-$(Build.BuildId)" `
+                        -ClientId $(CLIENT_ID) `
+                        -ClientSecret $(CLIENT_SECRET) `
+                        -TemplatePath $(TemplatePath) `
+                        -ResourceGroup $(AZURE_RESOURCE_GROUP) `
+                        -StorageAccount $(AZURE_STORAGE_ACCOUNT) `
+                        -SubscriptionId $(AZURE_SUBSCRIPTION) `
+                        -TenantId $(AZURE_TENANT) `
+                        -Location $(AZURE_LOCATION) 
+
+    env:
+      PACKER_LOG: 1
+      PACKER_LOG_PATH: $(Build.ArtifactStagingDirectory)/packer-log.txt
+
+#  - task: PowerShell@2
+#    displayName: 'Output Readme file content'
+#    inputs:
+#      targetType: 'inline'
+#      script: |
+#        Get-Content -Path (Join-Path "$(TemplateDirectoryPath)" "${{ parameters.image_readme_name }}")
+#  - task: PowerShell@2
+#    displayName: 'Print provisioners duration'
+#    inputs:
+#      targetType: 'filePath'
+#      filePath: ./images.CI/measure-provisioners-duration.ps1
+#      arguments: -PackerLogPath "$(Build.ArtifactStagingDirectory)/packer-log.txt" `
+#                        -PrefixToPathTrim "$(TemplateDirectoryPath)" `
+#                        -PrintTopNLongest 25
+
+#  - task: PublishBuildArtifacts@1
+#    displayName: 'Publish Packer log'
+#    inputs:
+#      pathToPublish: $(Build.ArtifactStagingDirectory)
+#      artifactName: PackerLog
+
+#  - task: PowerShell@2
+#    displayName: 'Create managed image'
+#    inputs:
+#      targetType: inline
+#      script: |
+#        $vhd = az storage blob list -c system --account-name $(AZURE_STORAGE_ACCOUNT) --auth-mode login | ConvertFrom-Json | Where-Object {$_.name -like "*$(Build.BuildId)*.vhd"} | sort-object {[System.DateTime]::ParseExact($_.properties.creationTime,"MM/dd/yyyy HH:mm:ss",$null)} -Descending | Select-Object -first 1
+#        $url = "https://$(AZURE_STORAGE_ACCOUNT).blob.core.windows.net/system/$($vhd.name)"
+#        Write-Host "Url: " $url
+#        $storageAccountId = az storage account show -n $(AZURE_STORAGE_ACCOUNT) --query id  --output tsv
+#        az sig image-version create `
+#        --resource-group $(AZURE_RESOURCE_GROUP) `
+#        --gallery-name $(AZURE_GALLERY) `
+#        --gallery-image-definition windows2022 `
+#        --gallery-image-version 1.0.$(Build.BuildId) `
+#        --os-vhd-storage-account $storageAccountId `
+#        --os-vhd-uri $url
+#        Write-Host "##vso[task.setvariable variable=downloadfilename]$vhd"
+#      pwsh: true
+    
+#  - task: PowerShell@2
+#    displayName: 'Upload file to storage account'
+#    inputs:
+#      targetType: 'inline'
+#      script: |
+#        $name = "$(downloadfilename)" + "_" + (get-date -format "yyyyMMdd") 
+#        az storage blob upload --file "C:\devopsdir\$name" --name "folder1/subcategory/$name" --container-name blobcontainer  --account-name storageaccountname --auth-mode login
+#      
+  - task: PowerShell@2
+    displayName: 'Clean up resources'
+    condition: always()
+    inputs:
+      targetType: filePath
+      filePath: ./images.CI/linux-and-win/cleanup.ps1
+      arguments: -ResourcesNamePrefix $(Build.BuildId) `
+                     -Image windows2022 `
+                     -StorageAccount $(AZURE_STORAGE_ACCOUNT) `
+                     -SubscriptionId $(AZURE_SUBSCRIPTION) `
+                     -ClientId $(CLIENT_ID) `
+                     -ClientSecret $(CLIENT_SECRET) `
+                     -TenantId $(AZURE_TENANT)
