@@ -3,7 +3,7 @@ jobs:
   displayName: Image Generation Windows
   timeoutInMinutes: 600
   cancelTimeoutInMinutes: 30
-  pool: Azure Pipelines
+  pool: on-prem agents
   variables:
   - group: Image Generation Variables
   - name: TemplatePath
